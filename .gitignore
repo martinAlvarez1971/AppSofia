@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+supabase/.temp/
+backend/dist/
+backend/src/generated/prisma/

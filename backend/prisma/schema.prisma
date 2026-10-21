@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["public"]
+}
+
+enum AppRole {
+  super_admin
+  operational_admin
+
+  @@map("app_role")
+  @@schema("public")
+}
+
+enum ProfileStatus {
+  active
+  inactive
+
+  @@map("profile_status")
+  @@schema("public")
+}
+
+model Profile {
+  id         String        @id @db.Uuid
+  firstName  String?       @map("first_name") @db.Text
+  lastName   String?       @map("last_name") @db.Text
+  email      String        @unique @db.Text
+  role       AppRole       @default(operational_admin)
+  status     ProfileStatus @default(inactive)
+  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  auditLogs  AuditLog[]    @relation("AuditActor")
+
+  @@map("profiles")
+  @@schema("public")
+}
+
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId    String   @map("actor_id") @db.Uuid
+  action     String   @db.VarChar(80)
+  entity     String   @db.VarChar(80)
+  entityId   String   @map("entity_id") @db.Uuid
+  oldValues  Json?    @map("old_values") @db.JsonB
+  newValues  Json?    @map("new_values") @db.JsonB
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  actor      Profile  @relation("AuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([entity, entityId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("audit_logs")
+  @@schema("public")
+}
