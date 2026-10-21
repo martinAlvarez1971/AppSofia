@@ -9,17 +9,36 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule)
   const config = app.get(ConfigService)
   app.setGlobalPrefix('api')
-  const origins = config.getOrThrow<string>('CORS_ORIGIN')
+  const defaultOrigins = [
+    'https://app-sofia-reservas.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000',
+  ]
+  const configuredOrigins = (config.get<string>('CORS_ORIGIN') ?? '')
     .split(',')
-    .map((origin) => origin.trim())
+    .map((origin) => origin.trim().replace(/\/$/, ''))
     .filter(Boolean)
+
+  const allowedOrigins = Array.from(new Set([...defaultOrigins, ...configuredOrigins]))
 
   app.use(helmet())
   app.enableCors({
-    origin: origins,
-    methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      if (!origin) {
+        return callback(null, true)
+      }
+      const cleanOrigin = origin.replace(/\/$/, '')
+      if (
+        allowedOrigins.includes(cleanOrigin) ||
+        cleanOrigin.endsWith('.vercel.app')
+      ) {
+        return callback(null, true)
+      }
+      return callback(null, false)
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type'],
-    credentials: false,
+    credentials: true,
   })
   app.useGlobalPipes(new ValidationPipe({
     transform: true,
