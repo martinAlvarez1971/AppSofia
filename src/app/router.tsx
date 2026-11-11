@@ -4,7 +4,10 @@ import { LoginPage } from '../features/auth/LoginPage'
 import { PasswordPages } from '../features/auth/PasswordPages'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { UsersPage } from '../features/users/UsersPage'
-import { TablesPage } from '../features/tables/TablesPage'
+import { AlertsPage } from '../features/alerts/AlertsPage'
+import { TablesOperationsPage } from '../features/tables/TablesOperationsPage'
+import { ReservationsQueryPage } from '../features/reservations/ReservationsQueryPage'
+import { ReportsPage } from '../features/reports/ReportsPage'
 import { AppShell } from '../components/AppShell'
 
 export function AppRoutes() {
@@ -18,8 +21,25 @@ export function AppRoutes() {
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
           <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/tables" element={<TablesPage />} />
-          <Route path="/users" element={<ProtectedRoute allowedRoles={['super_admin']}><UsersPage /></ProtectedRoute>} />
+          <Route path="/tables" element={<TablesOperationsPage />} />
+          <Route path="/reservas" element={<ReservationsQueryPage />} />
+          <Route path="/informes" element={<ReportsPage />} />
+          <Route
+            path="/alerts"
+            element={
+              <ProtectedRoute allowedRoles={['super_admin']}>
+                <AlertsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <ProtectedRoute allowedRoles={['super_admin']}>
+                <UsersPage />
+              </ProtectedRoute>
+            }
+          />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

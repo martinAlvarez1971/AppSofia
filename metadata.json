@@ -1,0 +1,6 @@
+{
+  "name": "SOFIA - Gestión del Salón",
+  "description": "Sistema de gestión integral para restaurantes: mesas, reservas, administración de cuentas y operación del salón.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

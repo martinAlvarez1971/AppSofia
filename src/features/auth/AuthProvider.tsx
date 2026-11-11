@@ -8,10 +8,59 @@ import { hasPasswordRecoveryMarker, setPasswordRecoveryMarker } from './recovery
 export function AuthProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [demoRole, setDemoRole] = useState<'super_admin' | 'operational_admin' | null>(() => {
+    // If Supabase is configured, demo mode is strictly inoperable and ignored
+    if (isSupabaseConfigured) return null
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('sofia_demo_role') as 'super_admin' | 'operational_admin' | null
+    }
+    return null
+  })
   const [passwordRecovery, setPasswordRecovery] = useState(
     () => isSupabaseConfigured && hasPasswordRecoveryMarker(),
   )
-  const [status, setStatus] = useState<AuthStatus>(isSupabaseConfigured ? 'loading' : 'unconfigured')
+  const [status, setStatus] = useState<AuthStatus>(() => {
+    if (!isSupabaseConfigured && demoRole) return 'ready'
+    return isSupabaseConfigured ? 'loading' : 'unconfigured'
+  })
+
+  const effectiveSession = useMemo<Session | null>(() => {
+    if (session) return session
+    if (!isSupabaseConfigured && demoRole) {
+      return {
+        access_token: demoRole === 'super_admin' ? 'demo-super-admin-token' : 'demo-operational-token',
+        token_type: 'bearer',
+        expires_in: 86400,
+        refresh_token: 'demo-refresh',
+        user: {
+          id: demoRole === 'super_admin' ? '00000000-0000-0000-0000-000000000001' : '00000000-0000-0000-0000-000000000002',
+          app_metadata: {},
+          user_metadata: {},
+          aud: 'authenticated',
+          created_at: '2026-01-01T00:00:00.000Z',
+          email: demoRole === 'super_admin' ? 'martinalvarez.android@gmail.com' : 'sofia.operaciones@restaurante.com',
+        },
+      } as unknown as Session
+    }
+    return null
+  }, [session, demoRole])
+
+  const effectiveProfile = useMemo<Profile | null>(() => {
+    if (profile) return profile
+    if (!isSupabaseConfigured && demoRole) {
+      return {
+        id: demoRole === 'super_admin' ? '00000000-0000-0000-0000-000000000001' : '00000000-0000-0000-0000-000000000002',
+        first_name: demoRole === 'super_admin' ? 'Martín' : 'Sofía',
+        last_name: demoRole === 'super_admin' ? 'Álvarez' : 'García',
+        email: demoRole === 'super_admin' ? 'martinalvarez.android@gmail.com' : 'sofia.operaciones@restaurante.com',
+        role: demoRole,
+        status: 'active',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      }
+    }
+    return null
+  }, [profile, demoRole])
 
   useEffect(() => {
     const client = supabase
@@ -73,8 +122,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }, [])
 
+  const enterDemoMode = useCallback((role: 'super_admin' | 'operational_admin' = 'super_admin') => {
+    localStorage.setItem('sofia_demo_role', role)
+    setDemoRole(role)
+    setStatus('ready')
+  }, [])
+
   const signIn = useCallback(async (email: string, password: string) => {
-    if (!supabase) return 'Supabase todavía no está configurado.'
+    if (!supabase) {
+      enterDemoMode('super_admin')
+      return null
+    }
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
     if (!error) {
       setPasswordRecovery(false)
@@ -85,9 +143,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
     if (text.includes('invalid')) return 'El correo o la contraseña no son correctos.'
     if (text.includes('not_confirmed')) return 'El correo todavía no fue confirmado. Contactá al administrador.'
     return 'No se pudo iniciar sesión. Revisá tus datos e intentá nuevamente.'
-  }, [])
+  }, [enterDemoMode])
 
   const signOut = useCallback(async () => {
+    if (demoRole) {
+      localStorage.removeItem('sofia_demo_role')
+      setDemoRole(null)
+      setSession(null)
+      setProfile(null)
+      setStatus(isSupabaseConfigured ? 'ready' : 'unconfigured')
+      return null
+    }
     if (!supabase) return null
     try {
       const { error } = await supabase.auth.signOut()
@@ -102,7 +168,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         return 'No se pudo cerrar la sesión por un error de conexión. Intentá nuevamente.'
       }
     }
-  }, [])
+  }, [demoRole])
 
   const recover = useCallback(async (email: string) => {
     if (!supabase) return false
@@ -121,10 +187,32 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return null
   }, [])
 
+  const effectiveStatus = demoRole ? 'ready' : status
+
   const value = useMemo(() => ({
-    session, profile, passwordRecovery, status, configured: isSupabaseConfigured,
-    signIn, signOut, recover, updatePassword,
-  }), [session, profile, passwordRecovery, status, signIn, signOut, recover, updatePassword])
+    session: effectiveSession,
+    profile: effectiveProfile,
+    passwordRecovery,
+    status: effectiveStatus,
+    configured: isSupabaseConfigured || Boolean(demoRole),
+    signIn,
+    signOut,
+    recover,
+    updatePassword,
+    enterDemoMode,
+    isDemo: Boolean(demoRole),
+  }), [
+    effectiveSession,
+    effectiveProfile,
+    passwordRecovery,
+    effectiveStatus,
+    signIn,
+    signOut,
+    recover,
+    updatePassword,
+    enterDemoMode,
+    demoRole,
+  ])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

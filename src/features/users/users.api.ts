@@ -10,6 +10,21 @@ export interface ManagedUser {
   createdAt: string
 }
 
+export interface UserAuthOperation {
+  id: string
+  correlationId: string
+  operationType: 'invite_user' | 'reset_password'
+  targetEmail: string
+  targetUserId: string | null
+  state: 'pending_auth' | 'auth_dispatched' | 'auth_response_received' | 'completed' | 'failed' | 'needs_reconciliation'
+  lastError: string | null
+  dispatchedAt: string | null
+  reconciledAt: string | null
+  reconciledBy: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export class UsersApiError extends Error {
   constructor(readonly status: number, message: string) {
     super(message)
@@ -17,9 +32,18 @@ export class UsersApiError extends Error {
   }
 }
 
-const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/$/, '')
+const apiBase = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
+
+function generateIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `sofia-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
+}
 
 async function request<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
+  const method = (init.method || 'GET').toUpperCase()
+  const isMutation = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS'
   let response: Response
   try {
     response = await fetch(`${apiBase}${path}`, {
@@ -27,6 +51,7 @@ async function request<T>(path: string, token: string, init: RequestInit = {}): 
       headers: {
         Authorization: `Bearer ${token}`,
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(isMutation ? { 'Idempotency-Key': generateIdempotencyKey() } : {}),
         ...init.headers,
       },
     })
@@ -62,7 +87,7 @@ export function inviteUser(token: string, input: {
   email: string
   role: 'operational_admin'
 }) {
-  return request<{ user: ManagedUser; invitationSent: boolean }>('/users', token, {
+  return request<{ user: ManagedUser; invitationSent: boolean; operationId?: string; state?: string }>('/users', token, {
     method: 'POST',
     body: JSON.stringify(input),
   })
@@ -83,5 +108,27 @@ export function transferSuperAdmin(token: string, id: string) {
 }
 
 export function sendPasswordReset(token: string, id: string) {
-  return request<{ message: string }>(`/users/${id}/reset-password`, token, { method: 'POST' })
+  return request<{ message: string; operationId?: string; state?: string }>(`/users/${id}/reset-password`, token, {
+    method: 'POST',
+  })
+}
+
+export function listAuthOperations(token: string) {
+  return request<UserAuthOperation[]>('/users/auth-operations', token)
+}
+
+export function reconcileAuthOperation(
+  token: string,
+  id: string,
+  payload: {
+    outcome?: 'completed' | 'failed' | 'needs_reconciliation'
+    targetUserId?: string | null
+    reason: string
+    autoVerify?: boolean
+  },
+) {
+  return request<UserAuthOperation>(`/users/auth-operations/${id}/reconcile`, token, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 }

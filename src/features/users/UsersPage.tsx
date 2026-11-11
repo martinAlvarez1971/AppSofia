@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { KeyRound, LoaderCircle, Plus, ShieldCheck, UserRoundCog, UserRoundMinus, UserRoundPlus } from 'lucide-react'
+import { KeyRound, LoaderCircle, Plus, RefreshCw, ShieldAlert, ShieldCheck, UserRoundCog, UserRoundMinus, UserRoundPlus } from 'lucide-react'
 import { useAuth } from '../auth/auth.context'
-import { changeUserStatus, inviteUser, listUsers, sendPasswordReset, transferSuperAdmin, UsersApiError, type ManagedUser } from './users.api'
+import {
+  changeUserStatus,
+  inviteUser,
+  listAuthOperations,
+  listUsers,
+  reconcileAuthOperation,
+  sendPasswordReset,
+  transferSuperAdmin,
+  UsersApiError,
+  type ManagedUser,
+  type UserAuthOperation,
+} from './users.api'
 
 type NewUserForm = { firstName: string; lastName: string; email: string }
 
@@ -11,6 +22,18 @@ function roleLabel(role: ManagedUser['role']) {
 
 function dateLabel(value: string) {
   return new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium' }).format(new Date(value))
+}
+
+function authStateLabel(state: UserAuthOperation['state']) {
+  switch (state) {
+    case 'pending_auth': return 'Pendiente Auth'
+    case 'auth_dispatched': return 'Despachada'
+    case 'auth_response_received': return 'Respuesta recibida'
+    case 'completed': return 'Completada'
+    case 'failed': return 'Fallida'
+    case 'needs_reconciliation': return 'Requiere reconciliación'
+    default: return state
+  }
 }
 
 export function UsersPage() {
@@ -25,6 +48,13 @@ export function UsersPage() {
   const [logoutFailed, setLogoutFailed] = useState(false)
   const [notice, setNotice] = useState('')
   const [refresh, setRefresh] = useState(0)
+
+  // Auth Saga Reconciliation drawer/panel (lazy-loaded on user click so initial mount only calls GET /api/users)
+  const [showAuthOps, setShowAuthOps] = useState(false)
+  const [authOps, setAuthOps] = useState<UserAuthOperation[]>([])
+  const [loadingAuthOps, setLoadingAuthOps] = useState(false)
+  const [reconcileReasons, setReconcileReasons] = useState<Record<string, string>>({})
+
   const isLoading = loading && Boolean(session?.access_token)
   const inviteButtonRef = useRef<HTMLButtonElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
@@ -113,6 +143,60 @@ export function UsersPage() {
     setRefresh((value) => value + 1)
   }
 
+  async function loadAuthOps() {
+    const token = session?.access_token
+    if (!token) return
+    setLoadingAuthOps(true)
+    try {
+      const ops = await listAuthOperations(token)
+      setAuthOps(ops)
+    } catch (requestError) {
+      void handleRequestError(requestError)
+    } finally {
+      setLoadingAuthOps(false)
+    }
+  }
+
+  async function handleToggleAuthOps() {
+    const next = !showAuthOps
+    setShowAuthOps(next)
+    if (next) {
+      await loadAuthOps()
+    }
+  }
+
+  async function handleReconcile(op: UserAuthOperation, mode: 'auto' | 'fail') {
+    const token = session?.access_token
+    if (!token) return
+    const reason = (reconcileReasons[op.id] || '').trim() || (
+      mode === 'auto'
+        ? 'Verificación de correlación contra GoTrue Admin API'
+        : 'Marcada como fallida tras revisión manual'
+    )
+    if (reason.length < 5) {
+      setError('El motivo de reconciliación debe tener al menos 5 caracteres.')
+      return
+    }
+    clearMessages()
+    setBusyId(op.id)
+    try {
+      await reconcileAuthOperation(
+        token,
+        op.id,
+        mode === 'auto'
+          ? { autoVerify: true, reason }
+          : { outcome: 'failed', reason },
+      )
+      setNotice(`Operación ${op.targetEmail} procesada en reconciliación.`)
+      await loadAuthOps()
+      refreshUsers()
+    } catch (requestError) {
+      void handleRequestError(requestError)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   async function retryLogout() {
     const logoutError = await signOut()
     if (logoutError) setError(logoutError)
@@ -134,8 +218,10 @@ export function UsersPage() {
       setShowCreate(false)
       setForm({ firstName: '', lastName: '', email: '' })
       refreshUsers()
+      if (showAuthOps) void loadAuthOps()
     } catch (requestError) {
       void handleRequestError(requestError)
+      if (showAuthOps) void loadAuthOps()
     } finally {
       setBusyId(null)
     }
@@ -169,8 +255,10 @@ export function UsersPage() {
     try {
       const result = await sendPasswordReset(token, user.id)
       setNotice(result.message)
+      if (showAuthOps) void loadAuthOps()
     } catch (requestError) {
       void handleRequestError(requestError)
+      if (showAuthOps) void loadAuthOps()
     } finally {
       setBusyId(null)
     }
@@ -214,9 +302,14 @@ export function UsersPage() {
 
     <section className="users-toolbar" aria-label="Acciones de cuentas">
       <div><strong>{users.length}</strong><span>{users.length === 1 ? ' cuenta' : ' cuentas'}</span></div>
-      <button ref={inviteButtonRef} className="button button--primary" type="button" disabled={logoutFailed} onClick={() => { clearMessages(); setShowCreate(true) }}>
-        <Plus size={17} /> Invitar administrador
-      </button>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button className="button button--quiet" type="button" disabled={logoutFailed} onClick={() => void handleToggleAuthOps()}>
+          <ShieldAlert size={15} /> {showAuthOps ? 'Ocultar reconciliación Auth' : 'Reconciliación Auth'}
+        </button>
+        <button ref={inviteButtonRef} className="button button--primary" type="button" disabled={logoutFailed} onClick={() => { clearMessages(); setShowCreate(true) }}>
+          <Plus size={17} /> Invitar administrador
+        </button>
+      </div>
     </section>
 
     <div className="users-table-wrap">
@@ -241,6 +334,99 @@ export function UsersPage() {
         </tbody>
       </table>
     </div>
+
+    {showAuthOps ? (
+      <section className="users-table-wrap" style={{ marginTop: 20, padding: 16 }} aria-label="Reconciliación de operaciones Auth">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div>
+            <strong style={{ fontSize: 14 }}>Historial Saga Auth y Reconciliación (PostgreSQL ↔ GoTrue)</strong>
+            <p style={{ fontSize: 12, color: '#5a6961', marginTop: 2 }}>
+              Las operaciones ambiguas nunca se reenvían automáticamente; requieren verificación por correlation_id o cierre manual.
+            </p>
+          </div>
+          <button className="button button--quiet" type="button" disabled={loadingAuthOps} onClick={() => void loadAuthOps()}>
+            <RefreshCw size={14} className={loadingAuthOps ? 'spin' : ''} /> Actualizar
+          </button>
+        </div>
+
+        {loadingAuthOps ? (
+          <p className="users-empty"><LoaderCircle className="spin" size={16} /> Consultando operaciones Auth...</p>
+        ) : authOps.length === 0 ? (
+          <p className="users-empty">No hay operaciones Auth registradas todavía.</p>
+        ) : (
+          <table className="users-table">
+            <thead>
+              <tr>
+                <th scope="col">Tipo / Correo</th>
+                <th scope="col">Estado</th>
+                <th scope="col">Correlación / Error</th>
+                <th scope="col">Reconciliación</th>
+              </tr>
+            </thead>
+            <tbody>
+              {authOps.map((op) => {
+                const requiresAction =
+                  op.state === 'needs_reconciliation' ||
+                  op.state === 'auth_dispatched' ||
+                  op.state === 'pending_auth'
+                return (
+                  <tr key={op.id}>
+                    <td>
+                      <strong>{op.operationType === 'invite_user' ? 'Invitación' : 'Recuperación'}</strong>
+                      <div><small>{op.targetEmail}</small></div>
+                    </td>
+                    <td>
+                      <span className={`status-tag status-tag--${op.state === 'completed' ? 'active' : 'inactive'}`}>
+                        {authStateLabel(op.state)}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ fontFamily: 'monospace', fontSize: 11 }}>corr: {op.correlationId.slice(0, 8)}…</div>
+                      {op.lastError ? <small style={{ color: '#991b1b' }}>{op.lastError}</small> : null}
+                    </td>
+                    <td>
+                      {requiresAction ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <input
+                            type="text"
+                            placeholder="Motivo de reconciliación..."
+                            value={reconcileReasons[op.id] || ''}
+                            onChange={(e) => setReconcileReasons((prev) => ({ ...prev, [op.id]: e.target.value }))}
+                            style={{ fontSize: 12, padding: '4px 8px', border: '1px solid #dce4dd', borderRadius: 6 }}
+                          />
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            {op.operationType === 'invite_user' && (
+                              <button
+                                className="button button--quiet"
+                                type="button"
+                                disabled={busyId !== null}
+                                onClick={() => void handleReconcile(op, 'auto')}
+                              >
+                                Verificar con GoTrue
+                              </button>
+                            )}
+                            <button
+                              className="button button--quiet"
+                              type="button"
+                              disabled={busyId !== null}
+                              onClick={() => void handleReconcile(op, 'fail')}
+                            >
+                              Marcar fallida
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <small>{op.reconciledAt ? `Cerrada: ${dateLabel(op.reconciledAt)}` : 'Finalizada'}</small>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </section>
+    ) : null}
 
     <p className="users-footnote"><UserRoundCog size={16} /> Las cuentas se conservan para mantener la trazabilidad. Las invitaciones llegan por correo; no se comparte una contraseña temporal.</p>
 

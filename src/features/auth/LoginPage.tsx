@@ -1,12 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Eye, EyeOff, KeyRound, Mail } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, Mail, Sparkles } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { AuthFrame } from '../../components/AuthFrame'
 import { LoadingState, Notice } from '../../components/PageState'
 import { useAuth } from './auth.context'
 
 export function LoginPage() {
-  const { signIn, status, configured, session, profile } = useAuth()
+  const { signIn, status, configured, session, profile, enterDemoMode } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [email, setEmail] = useState('')
@@ -36,15 +36,122 @@ export function LoginPage() {
     else setRedirectAfterSignIn(destination)
   }
 
-  return <AuthFrame title="Bienvenida a SOFIA" description="Ingresá con la cuenta que te asignó el administrador principal.">
-    {!configured ? <Notice title="Falta configurar Supabase" warning>Completá <code>VITE_SUPABASE_URL</code> y <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> en <code>.env.local</code>. El acceso todavía no está habilitado.</Notice> : null}
-    {error ? <p className="form-error" role="alert">{error}</p> : null}
-    <form className="auth-form" onSubmit={submit}>
-      <label className="field"><span>Correo electrónico</span><span className="field-control"><Mail size={17} /><input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required /></span></label>
-      <label className="field"><span>Contraseña</span><span className="field-control"><KeyRound size={17} /><input type={visible ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /><button className="icon-button" type="button" aria-label={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'} aria-pressed={visible} onClick={() => setVisible(!visible)}>{visible ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>
-      <div className="form-link"><Link to="/auth/forgot-password">¿Olvidaste tu contraseña?</Link></div>
-      <button className="button button--primary button--full" disabled={!configured || busy}>{busy ? 'Ingresando…' : 'Iniciar sesión'}</button>
-    </form>
-    <p className="auth-note">Acceso privado para el equipo del establecimiento.</p>
-  </AuthFrame>
+  return (
+    <AuthFrame
+      title="Bienvenida a SOFIA"
+      description="Ingresá con la cuenta que te asignó el administrador principal."
+    >
+      {!configured ? (
+        <div style={{ marginBottom: 16 }}>
+          <Notice title="Supabase sin configurar" warning>
+            Para autenticación en producción, configurá <code>VITE_SUPABASE_URL</code> y{' '}
+            <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> en <code>.env</code>.
+          </Notice>
+          <div
+            style={{
+              marginTop: 12,
+              padding: 12,
+              background: '#f0f5f1',
+              borderRadius: 8,
+              border: '1px solid #d3e2d6',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontWeight: 700,
+                fontSize: 12,
+                color: '#1f5a49',
+                marginBottom: 6,
+              }}
+            >
+              <Sparkles size={15} />
+              <span>Modo Demostración Rápido</span>
+            </div>
+            <p style={{ margin: '0 0 10px', fontSize: 11, color: '#52665a', lineHeight: 1.4 }}>
+              Podés ingresar inmediatamente como Administrador para explorar las funciones de SOFIA, el
+              salón y el panel de cuentas:
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <button
+                type="button"
+                className="button button--primary"
+                style={{ minHeight: 38, fontSize: 11, padding: '0 8px' }}
+                onClick={() => {
+                  enterDemoMode?.('super_admin')
+                  navigate(destination, { replace: true })
+                }}
+              >
+                Super Administrador
+              </button>
+              <button
+                type="button"
+                className="button button--quiet"
+                style={{ minHeight: 38, fontSize: 11, padding: '0 8px' }}
+                onClick={() => {
+                  enterDemoMode?.('operational_admin')
+                  navigate(destination, { replace: true })
+                }}
+              >
+                Admin Operativo
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {error ? (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <form className="auth-form" onSubmit={submit}>
+        <label className="field">
+          <span>Correo electrónico</span>
+          <span className="field-control">
+            <Mail size={17} />
+            <input
+              type="email"
+              autoComplete="username"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
+          </span>
+        </label>
+        <label className="field">
+          <span>Contraseña</span>
+          <span className="field-control">
+            <KeyRound size={17} />
+            <input
+              type={visible ? 'text' : 'password'}
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+            <button
+              className="icon-button"
+              type="button"
+              aria-label={visible ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+              aria-pressed={visible}
+              onClick={() => setVisible(!visible)}
+            >
+              {visible ? <EyeOff size={17} /> : <Eye size={17} />}
+            </button>
+          </span>
+        </label>
+        <div className="form-link">
+          <Link to="/auth/forgot-password">¿Olvidaste tu contraseña?</Link>
+        </div>
+        <button className="button button--primary button--full" disabled={!configured || busy}>
+          {busy ? 'Ingresando…' : 'Iniciar sesión'}
+        </button>
+      </form>
+      <p className="auth-note">Acceso privado para el equipo del establecimiento.</p>
+    </AuthFrame>
+  )
 }

@@ -13,6 +13,8 @@ export type AuthValue = {
   signOut: () => Promise<string | null>
   recover: (email: string) => Promise<boolean>
   updatePassword: (password: string) => Promise<string | null>
+  enterDemoMode?: (role?: 'super_admin' | 'operational_admin') => void
+  isDemo?: boolean
 }
 
 export const AuthContext = createContext<AuthValue | null>(null)

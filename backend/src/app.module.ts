@@ -6,9 +6,6 @@ import { PrismaModule } from './prisma/prisma.module'
 import { SupabaseModule } from './auth/supabase.module'
 import { UsersModule } from './users/users.module'
 
-import { TablesModule } from './tables/tables.module'
-import { ReservationsModule } from './reservations/reservations.module'
-
 const requiredEnvironment = [
   'SUPABASE_URL',
   'SUPABASE_PUBLISHABLE_KEY',
@@ -35,8 +32,6 @@ const requiredEnvironment = [
     PrismaModule,
     SupabaseModule,
     UsersModule,
-    TablesModule,
-    ReservationsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

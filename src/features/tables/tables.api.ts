@@ -1,24 +1,40 @@
 import type {
-  AvailabilityResult,
-  CreateReservationInput,
-  CreateTableInput,
+  Table,
   Reservation,
-  RestaurantTable,
-  TableOccupancy,
-  TableStatus,
-  UpdateTableInput,
+  TableSessionSummary,
+  OperationalSettings,
+  CapacityCheckResult,
+  DeactivationCheckResult,
+  CreateReservationPayload,
+  CreateTablePayload,
+  InitializeFloorPlanPayload,
+  ReassignTablesPayload,
 } from './tables.types'
 
+const apiBase = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
+
 export class TablesApiError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly details?: unknown,
+    readonly code?: string,
+  ) {
     super(message)
     this.name = 'TablesApiError'
   }
 }
 
-const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/$/, '')
+function generateIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `sofia-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
+}
 
 async function request<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
+  const method = (init.method || 'GET').toUpperCase()
+  const isMutation = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS'
   let response: Response
   try {
     response = await fetch(`${apiBase}${path}`, {
@@ -26,94 +42,211 @@ async function request<T>(path: string, token: string, init: RequestInit = {}): 
       headers: {
         Authorization: `Bearer ${token}`,
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(isMutation ? { 'Idempotency-Key': generateIdempotencyKey() } : {}),
         ...init.headers,
       },
     })
   } catch {
-    throw new TablesApiError(0, 'No se pudo conectar con el servidor. Verificá que el backend esté iniciado.')
+    throw new TablesApiError(0, 'No se pudo conectar con el servidor de SOFIA.')
   }
 
   if (!response.ok) {
-    let message = 'No se pudo completar la operación.'
+    let message = 'Error en la operación de sala.'
+    let details: unknown = null
+    let code: string | undefined
     try {
-      const body = (await response.json()) as { message?: string | string[] }
-      if (Array.isArray(body.message)) message = body.message.join(' ')
-      else if (body.message) message = body.message
+      const data = await response.json()
+      if (data.message) message = data.message
+      if (data.details) details = data.details
+      if (data.code) code = data.code
     } catch {
       message = response.statusText || message
     }
-    if (response.status === 401) message = 'La sesión venció. Iniciá sesión nuevamente.'
-    if (response.status === 403) message = 'No tenés permisos para realizar esta operación.'
-    throw new TablesApiError(response.status, message)
+    throw new TablesApiError(response.status, message, details, code)
   }
 
-  if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }
 
-export function listTables(token: string, filters?: { sector?: string; minCapacity?: number; status?: TableStatus; search?: string }) {
-  const params = new URLSearchParams()
-  if (filters?.sector) params.set('sector', filters.sector)
-  if (filters?.minCapacity) params.set('minCapacity', filters.minCapacity.toString())
-  if (filters?.status) params.set('status', filters.status)
-  if (filters?.search) params.set('search', filters.search)
-  const qs = params.toString() ? `?${params.toString()}` : ''
-  return request<RestaurantTable[]>(`/tables${qs}`, token)
-}
+export const tablesApi = {
+  getTables(token: string) {
+    return request<Table[]>('/tables', token)
+  },
 
-export function getTable(token: string, id: string) {
-  return request<RestaurantTable>(`/tables/${id}`, token)
-}
+  getReservations(token: string) {
+    return request<Reservation[]>('/reservations', token)
+  },
 
-export function createTable(token: string, input: CreateTableInput) {
-  return request<RestaurantTable>('/tables', token, {
-    method: 'POST',
-    body: JSON.stringify(input),
-  })
-}
+  getOperationalSettings(token: string) {
+    return request<OperationalSettings>('/settings/operational', token)
+  },
 
-export function updateTable(token: string, id: string, input: UpdateTableInput) {
-  return request<RestaurantTable>(`/tables/${id}`, token, {
-    method: 'PATCH',
-    body: JSON.stringify(input),
-  })
-}
+  updateOperationalSettings(
+    token: string,
+    payload: Omit<OperationalSettings, 'updatedAt'> & { reason?: string },
+  ) {
+    return request<OperationalSettings>('/settings/operational', token, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    })
+  },
 
-export function changeTableStatus(token: string, id: string, status: TableStatus) {
-  return request<RestaurantTable>(`/tables/${id}/status`, token, {
-    method: 'PATCH',
-    body: JSON.stringify({ status }),
-  })
-}
+  checkCapacityConflict(token: string, tableId: string, newCapacity: number) {
+    return request<CapacityCheckResult>(`/tables/${tableId}/check-capacity?capacity=${newCapacity}`, token)
+  },
 
-export function toggleTableService(token: string, id: string, isOutOfService: boolean) {
-  return request<RestaurantTable>(`/tables/${id}/service`, token, {
-    method: 'PATCH',
-    body: JSON.stringify({ isOutOfService }),
-  })
-}
+  updateCapacity(token: string, tableId: string, newCapacity: number, reason: string, force = false) {
+    return request<Table>(`/tables/${tableId}/capacity`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ capacity: newCapacity, reason, force }),
+    })
+  },
 
-export function updateTableOccupancy(token: string, id: string, currentOccupancy: TableOccupancy) {
-  return request<RestaurantTable>(`/tables/${id}/occupancy`, token, {
-    method: 'PATCH',
-    body: JSON.stringify({ currentOccupancy }),
-  })
-}
+  checkDeactivation(token: string, tableId: string) {
+    return request<DeactivationCheckResult>(`/tables/${tableId}/check-deactivation`, token)
+  },
 
-export function checkAvailability(
-  token: string,
-  params: { startTime: string; durationMinutes?: number; partySize?: number },
-) {
-  const searchParams = new URLSearchParams()
-  searchParams.set('startTime', params.startTime)
-  if (params.durationMinutes) searchParams.set('durationMinutes', params.durationMinutes.toString())
-  if (params.partySize) searchParams.set('partySize', params.partySize.toString())
-  return request<AvailabilityResult>(`/reservations/availability?${searchParams.toString()}`, token)
-}
+  updateStatus(
+    token: string,
+    tableId: string,
+    status: 'available' | 'out_of_service',
+    reason?: string,
+  ) {
+    return request<Table>(`/tables/${tableId}/status`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, reason }),
+    })
+  },
 
-export function createReservation(token: string, input: CreateReservationInput) {
-  return request<Reservation>('/reservations', token, {
-    method: 'POST',
-    body: JSON.stringify(input),
-  })
+  openWalkIn(
+    token: string,
+    tableId: string,
+    payload: { guestsCount?: number; expectedDurationMinutes?: number; notes?: string } = {},
+  ) {
+    return request<TableSessionSummary>(`/tables/${tableId}/walk-in`, token, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  releaseTableOperational(token: string, tableId: string, reason: string) {
+    return request<{ tableId: string; number: number; status: Table['status']; closedSessionId: string | null }>(
+      `/tables/${tableId}/release-operational`,
+      token,
+      {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      },
+    )
+  },
+
+  extendTableSession(token: string, sessionId: string, extraMinutes: number, reason?: string) {
+    return request<{ id: string; tableId: string; expectedDurationMinutes: number; estimatedEndAt: string }>(
+      `/table-sessions/${sessionId}/extend`,
+      token,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ extraMinutes, reason }),
+      },
+    )
+  },
+
+  closeWalkInSession(token: string, sessionId: string, notes?: string) {
+    return request<{ id: string; tableId: string; endedAt: string; closeReason: string }>(
+      `/table-sessions/${sessionId}/close`,
+      token,
+      {
+        method: 'POST',
+        body: JSON.stringify({ notes }),
+      },
+    )
+  },
+
+  createReservation(token: string, payload: CreateReservationPayload) {
+    return request<Reservation>('/reservations', token, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  reassignReservationTables(token: string, reservationId: string, payload: ReassignTablesPayload) {
+    return request<{ id: string; previousTableIds: string[]; tableIds: string[] }>(
+      `/reservations/${reservationId}/reassign-tables`,
+      token,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    )
+  },
+
+  seatReservation(
+    token: string,
+    reservationId: string,
+    payload: { expectedDurationMinutes?: number; notes?: string } = {},
+  ) {
+    return request<{
+      id: string
+      status: 'seated'
+      seatedAt: string
+      tableIds: string[]
+      sessionIds: string[]
+      estimatedEndAt: string
+    }>(`/reservations/${reservationId}/seat`, token, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  noShowReservation(token: string, reservationId: string, reason: string) {
+    return request<{ id: string; status: 'no_show'; noShowAt: string }>(
+      `/reservations/${reservationId}/no-show`,
+      token,
+      {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      },
+    )
+  },
+
+  completeService(token: string, reservationId: string, notes?: string) {
+    return request<{
+      id: string
+      status: 'completed'
+      completedAt: string
+      closedSessionIds: string[]
+      tableIds: string[]
+    }>(`/reservations/${reservationId}/complete-service`, token, {
+      method: 'POST',
+      body: JSON.stringify({ notes }),
+    })
+  },
+
+  cancelReservation(token: string, reservationId: string, reason: string) {
+    return request<{ message: string; reservation: Reservation }>(`/reservations/${reservationId}/cancel`, token, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    })
+  },
+
+  createTable(token: string, payload: CreateTablePayload) {
+    return request<Table>('/tables', token, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  initializeFloorPlan(token: string, payload: InitializeFloorPlanPayload) {
+    return request<{ message: string; count: number; tables: Table[] }>('/tables/initialize-floorplan', token, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  deleteTable(token: string, tableId: string, reason?: string) {
+    return request<{ message: string }>(`/tables/${tableId}`, token, {
+      method: 'DELETE',
+      ...(reason ? { body: JSON.stringify({ reason }) } : {}),
+    })
+  },
 }
