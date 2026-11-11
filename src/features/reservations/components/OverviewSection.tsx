@@ -111,7 +111,7 @@ export function OverviewSection({ stats, loading, onNavigateToTab }: OverviewSec
                 </span>
               </div>
               <div className="text-2xl font-extrabold text-[#1b2925] font-['Manrope']">
-                {card.value.toLocaleString('es-AR')}
+                {(card.value ?? 0).toLocaleString('es-AR')}
               </div>
             </div>
           );

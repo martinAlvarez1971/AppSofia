@@ -155,7 +155,7 @@ export function TableRotationTable({ tables }: TableRotationTableProps) {
                     <span className="text-[#68766f]">({t.walkInSessionsCount} w/i)</span>
                   </td>
                   <td className="px-4 text-right font-mono tabular-nums font-semibold text-[#1b2925]">
-                    {t.totalGuests.toLocaleString('es-AR')}
+                    {(t.totalGuests ?? 0).toLocaleString('es-AR')}
                   </td>
                   <td className="px-4 text-right font-mono tabular-nums text-[#4f5e55]">
                     {t.avgDurationMinutes > 0 ? formatDurationMinutes(t.avgDurationMinutes) : '—'}

@@ -383,7 +383,7 @@ export function ReportsPage() {
             </div>
             <div className="mt-1.5 flex items-baseline gap-2">
               <strong className="text-2xl font-extrabold font-mono tabular-nums text-[#2563eb]">
-                {totalCombinedServices.toLocaleString('es-AR')}
+                {(totalCombinedServices ?? 0).toLocaleString('es-AR')}
               </strong>
               <span className="text-xs text-[#4f5e55]">totales</span>
             </div>
@@ -404,7 +404,7 @@ export function ReportsPage() {
             </div>
             <div className="mt-1.5 flex items-baseline gap-2">
               <strong className="text-2xl font-extrabold font-mono tabular-nums text-[#7c3aed]">
-                {totalCombinedGuests.toLocaleString('es-AR')}
+                {(totalCombinedGuests ?? 0).toLocaleString('es-AR')}
               </strong>
               <span className="text-xs font-mono tabular-nums text-[#4f5e55]">
                 prom. {report.reservations.avgPartySize}
@@ -715,7 +715,7 @@ export function ReportsPage() {
                               <span className="text-[#d97706]">({sec.walkInSessionsCount} w/i)</span>
                             </td>
                             <td className="px-4 text-right font-mono tabular-nums font-semibold text-[#1b2925]">
-                              {sec.totalGuests.toLocaleString('es-AR')}
+                              {(sec.totalGuests ?? 0).toLocaleString('es-AR')}
                             </td>
                             <td className="px-4 text-right font-mono tabular-nums text-[#4f5e55]">
                               {sec.avgDurationMinutes > 0
