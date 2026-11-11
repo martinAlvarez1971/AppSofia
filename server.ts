@@ -545,11 +545,8 @@ function requireSuperAdmin(req: AuthorizedRequest, res: Response, next: NextFunc
 // =========================================================================
 // Express Application Setup
 // =========================================================================
-async function startServer() {
-  const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-
-  app.use(express.json());
+export const app = express();
+app.use(express.json());
 
   // -----------------------------------------------------------------------
   // Parámetros Operativos del Salón (Migración 5)
@@ -3389,24 +3386,32 @@ async function startServer() {
     });
   });
 
-  // Servir Frontend
-  if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (req: Request, res: Response) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+  // Servir Frontend y escuchar solo fuera de entornos serverless (como Vercel)
+  async function startServer() {
+    if (process.env.VERCEL) {
+      return;
+    }
+
+    if (process.env.NODE_ENV === 'production') {
+      app.use(express.static(path.resolve(__dirname, 'dist')));
+      app.get('*', (req: Request, res: Response) => {
+        res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+      });
+    } else {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    }
+
+    const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`SOFIA app running on http://0.0.0.0:${PORT} [Auth Mode: ${isLiveSupabaseConfigured ? 'SUPABASE' : 'DEMO'}]`);
     });
-  } else {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`SOFIA app running on http://0.0.0.0:${PORT} [Auth Mode: ${isLiveSupabaseConfigured ? 'SUPABASE' : 'DEMO'}]`);
-  });
-}
+  startServer();
 
-startServer();
+  export default app;
