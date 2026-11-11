@@ -548,6 +548,14 @@ function requireSuperAdmin(req: AuthorizedRequest, res: Response, next: NextFunc
 export const app = express();
 app.use(express.json());
 
+// Normalización de rutas para Vercel Serverless Functions
+app.use((req, res, next) => {
+  if (req.url && !req.url.startsWith('/api')) {
+    req.url = `/api${req.url.startsWith('/') ? '' : '/'}${req.url}`;
+  }
+  next();
+});
+
   // -----------------------------------------------------------------------
   // Parámetros Operativos del Salón (Migración 5)
   // -----------------------------------------------------------------------
