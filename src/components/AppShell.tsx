@@ -17,7 +17,7 @@ export function AppShell() {
       <nav aria-label="Navegación principal">
         <NavLink className="nav-item" to="/dashboard"><LayoutDashboard size={17} />Inicio</NavLink>
         {profile?.role === 'super_admin' ? <NavLink className="nav-item" to="/users"><UsersRound size={17} />Administradores</NavLink> : null}
-        <span className="nav-item nav-planned"><Armchair size={17} />Mesas <small>Próxima fase</small></span>
+        <NavLink className="nav-item" to="/tables"><Armchair size={17} />Mesas</NavLink>
         <span className="nav-item nav-planned"><CalendarDays size={17} />Reservas <small>Próxima fase</small></span>
         <span className="nav-item nav-planned"><BarChart3 size={17} />Informes <small>Próxima fase</small></span>
       </nav>

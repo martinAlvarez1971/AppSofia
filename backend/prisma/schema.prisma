@@ -24,16 +24,44 @@ enum ProfileStatus {
   @@schema("public")
 }
 
+enum TableStatus {
+  active
+  inactive
+
+  @@map("table_status")
+  @@schema("public")
+}
+
+enum TableOccupancy {
+  free
+  occupied
+
+  @@map("table_occupancy")
+  @@schema("public")
+}
+
+enum ReservationStatus {
+  confirmed
+  seated
+  completed
+  cancelled
+  no_show
+
+  @@map("reservation_status")
+  @@schema("public")
+}
+
 model Profile {
-  id         String        @id @db.Uuid
-  firstName  String?       @map("first_name") @db.Text
-  lastName   String?       @map("last_name") @db.Text
-  email      String        @unique @db.Text
-  role       AppRole       @default(operational_admin)
-  status     ProfileStatus @default(inactive)
-  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
-  auditLogs  AuditLog[]    @relation("AuditActor")
+  id                  String        @id @db.Uuid
+  firstName           String?       @map("first_name") @db.Text
+  lastName            String?       @map("last_name") @db.Text
+  email               String        @unique @db.Text
+  role                AppRole       @default(operational_admin)
+  status              ProfileStatus @default(inactive)
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  auditLogs           AuditLog[]    @relation("AuditActor")
+  createdReservations Reservation[] @relation("ReservationCreator")
 
   @@map("profiles")
   @@schema("public")
@@ -53,5 +81,61 @@ model AuditLog {
   @@index([entity, entityId, createdAt])
   @@index([actorId, createdAt])
   @@map("audit_logs")
+  @@schema("public")
+}
+
+model RestaurantTable {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  number           String             @unique @db.VarChar(20)
+  capacity         Int
+  minCapacity      Int                @default(1) @map("min_capacity")
+  sector           String?            @db.VarChar(50)
+  status           TableStatus        @default(active)
+  isOutOfService   Boolean            @default(false) @map("is_out_of_service")
+  currentOccupancy TableOccupancy     @default(free) @map("current_occupancy")
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  reservations     ReservationTable[]
+
+  @@index([sector])
+  @@index([status, isOutOfService])
+  @@map("restaurant_tables")
+  @@schema("public")
+}
+
+model Reservation {
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerName  String             @map("customer_name") @db.VarChar(120)
+  customerPhone String?            @map("customer_phone") @db.VarChar(30)
+  customerEmail String?            @map("customer_email") @db.VarChar(120)
+  partySize     Int                @map("party_size")
+  startTime     DateTime           @map("start_time") @db.Timestamptz(6)
+  endTime       DateTime           @map("end_time") @db.Timestamptz(6)
+  status        ReservationStatus  @default(confirmed)
+  notes         String?            @db.Text
+  createdBy     String             @map("created_by") @db.Uuid
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  creator       Profile            @relation("ReservationCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  tables        ReservationTable[]
+
+  @@index([startTime, endTime, status])
+  @@index([createdBy])
+  @@map("reservations")
+  @@schema("public")
+}
+
+model ReservationTable {
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reservationId String          @map("reservation_id") @db.Uuid
+  tableId       String          @map("table_id") @db.Uuid
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  reservation   Reservation     @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  table         RestaurantTable @relation(fields: [tableId], references: [id], onDelete: Restrict)
+
+  @@unique([reservationId, tableId])
+  @@index([tableId])
+  @@index([reservationId])
+  @@map("reservation_tables")
   @@schema("public")
 }

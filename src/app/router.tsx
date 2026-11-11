@@ -4,6 +4,7 @@ import { LoginPage } from '../features/auth/LoginPage'
 import { PasswordPages } from '../features/auth/PasswordPages'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { UsersPage } from '../features/users/UsersPage'
+import { TablesPage } from '../features/tables/TablesPage'
 import { AppShell } from '../components/AppShell'
 
 export function AppRoutes() {
@@ -17,6 +18,7 @@ export function AppRoutes() {
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/tables" element={<TablesPage />} />
           <Route path="/users" element={<ProtectedRoute allowedRoles={['super_admin']}><UsersPage /></ProtectedRoute>} />
         </Route>
       </Route>
