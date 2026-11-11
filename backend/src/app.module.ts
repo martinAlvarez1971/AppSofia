@@ -1,10 +1,27 @@
-import { Module } from '@nestjs/common'
+import { Controller, Get, Module } from '@nestjs/common'
 import { APP_GUARD } from '@nestjs/core'
 import { ConfigModule } from '@nestjs/config'
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
 import { PrismaModule } from './prisma/prisma.module'
 import { SupabaseModule } from './auth/supabase.module'
 import { UsersModule } from './users/users.module'
+import { SettingsModule } from './settings/settings.module'
+import { AlertsModule } from './alerts/alerts.module'
+import { TablesModule } from './tables/tables.module'
+import { ReservationsModule } from './reservations/reservations.module'
+import { ReportsModule } from './reports/reports.module'
+
+@Controller('health')
+export class HealthController {
+  @Get()
+  check() {
+    return {
+      status: 'ok',
+      app: 'SOFIA NestJS Backend',
+      timestamp: new Date().toISOString(),
+    }
+  }
+}
 
 const requiredEnvironment = [
   'SUPABASE_URL',
@@ -32,7 +49,13 @@ const requiredEnvironment = [
     PrismaModule,
     SupabaseModule,
     UsersModule,
+    SettingsModule,
+    AlertsModule,
+    TablesModule,
+    ReservationsModule,
+    ReportsModule,
   ],
+  controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}
