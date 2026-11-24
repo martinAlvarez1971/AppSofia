@@ -4,12 +4,14 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   InternalServerErrorException,
   Param,
   Patch,
   Post,
   UseGuards,
 } from '@nestjs/common'
+import crypto from 'node:crypto'
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
@@ -144,16 +146,77 @@ export class TablesController {
   async initializeFloorPlan(
     @CurrentUser() user: AuthenticatedActor,
     @Body() body: any,
+    @Headers('idempotency-key') idempotencyKey?: string,
+    @Headers('x-idempotency-key') xIdempotencyKey?: string,
   ) {
-    const tables = Array.isArray(body.tables) ? body.tables : []
-    const reason = String(body.reason || 'Inicialización guiada del plano de salón').trim()
+    const rawTables = Array.isArray(body.tables) ? body.tables : []
+    if (rawTables.length === 0) {
+      throw new BadRequestException('Debe ingresar al menos una mesa para configurar el plano.')
+    }
+    const reason = String(body.reason || 'Configuración inicial del plano del salón').trim()
+    const wipeExisting = Boolean(body.wipeExisting)
 
-    const { data: txData, error: txError } = await this.supabase.adminClient.rpc(
-      'initialize_floorplan_tx',
+    const numbersSeen = new Set<number>()
+    const sanitizedTables: Array<{
+      number: number
+      capacity: number
+      maxCapacity: number
+      sector: string
+      shape: 'round' | 'square' | 'rectangle'
+    }> = []
+
+    for (const item of rawTables) {
+      const num = parseInt(item.number, 10)
+      if (isNaN(num) || num <= 0) {
+        throw new BadRequestException(`Número de mesa inválido: ${item.number}. Debe ser mayor a 0.`)
+      }
+      if (numbersSeen.has(num)) {
+        throw new BadRequestException(`Número de mesa duplicado: Mesa ${num}. Cada mesa debe tener un número identificatorio único.`)
+      }
+      numbersSeen.add(num)
+
+      const cap = parseInt(item.capacity, 10)
+      if (isNaN(cap) || cap < 1 || cap > 30) {
+        throw new BadRequestException(`Capacidad de la Mesa ${num} inválida. Debe ser entre 1 y 30 personas.`)
+      }
+
+      const sec = (item.sector && typeof item.sector === 'string' && item.sector.trim().length > 0)
+        ? item.sector.trim()
+        : 'Salón Principal'
+
+      const maxCap = Math.max(cap, parseInt(item.maxCapacity, 10) || cap)
+      const shp = (item.shape === 'round' || item.shape === 'square' || item.shape === 'rectangle')
+        ? item.shape
+        : (cap <= 2 ? 'round' : cap <= 4 ? 'square' : 'rectangle')
+
+      sanitizedTables.push({
+        number: num,
+        capacity: cap,
+        maxCapacity: maxCap,
+        sector: sec,
+        shape: shp,
+      })
+    }
+
+    const rawKey = (idempotencyKey || xIdempotencyKey || '').trim()
+    const p_idempotency_key = rawKey.length >= 8 && rawKey.length <= 128
+      ? rawKey
+      : `sofia-init-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`
+
+    const p_request_hash = crypto
+      .createHash('sha256')
+      .update(JSON.stringify({ op: 'initialize_floor_plan', tables: sanitizedTables, wipe: wipeExisting, reason }))
+      .digest('hex')
+
+    const { error: txError } = await this.supabase.adminClient.rpc(
+      'initialize_floor_plan_tx',
       {
-        p_tables: tables,
+        p_tables: sanitizedTables,
+        p_wipe: wipeExisting,
         p_reason: reason,
         p_actor_id: user.id,
+        p_idempotency_key,
+        p_request_hash,
       },
     )
 
@@ -161,7 +224,53 @@ export class TablesController {
       throw new BadRequestException(txError.message)
     }
 
-    return txData
+    const [{ data: freshTables, error: tFetchErr }, { data: openSess }] = await Promise.all([
+      this.supabase.adminClient.from('tables').select('*').order('number', { ascending: true }),
+      this.supabase.adminClient.from('table_sessions').select('*').is('ended_at', null),
+    ])
+
+    if (tFetchErr) {
+      throw new InternalServerErrorException(`Plano guardado, pero falló la lectura de mesas: ${tFetchErr.message}`)
+    }
+
+    const sessMap = new Map<string, any>()
+    for (const s of openSess || []) {
+      sessMap.set(s.table_id, {
+        id: s.id,
+        tableId: s.table_id,
+        sessionType: s.session_type,
+        guestsCount: s.guests_count,
+        startedAt: s.started_at,
+        expectedDurationMinutes: s.expected_duration_minutes,
+        estimatedEndAt: s.estimated_end_at,
+        endedAt: s.ended_at,
+        closeReason: s.close_reason,
+        notes: s.notes,
+      })
+    }
+
+    const formatted = (freshTables || []).map((r: any) => {
+      const activeSession = sessMap.get(r.id) || null
+      return {
+        id: r.id,
+        number: r.number,
+        sector: r.sector,
+        capacity: r.capacity,
+        maxCapacity: r.max_capacity ?? r.maxCapacity ?? r.capacity,
+        status: r.status,
+        isActive: r.is_active ?? r.isActive ?? true,
+        shape: r.shape || (r.capacity <= 2 ? 'round' : r.capacity <= 4 ? 'square' : 'rectangle'),
+        occupiedSince: activeSession?.startedAt || null,
+        activeSession,
+        upcomingReservationsCount: 0,
+      }
+    })
+
+    return {
+      message: 'Nuevo plano guardado con éxito en PostgreSQL.',
+      count: formatted.length,
+      tables: formatted,
+    }
   }
 
   @Get(':id/check-capacity')
