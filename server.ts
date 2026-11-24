@@ -548,6 +548,25 @@ function requireSuperAdmin(req: AuthorizedRequest, res: Response, next: NextFunc
 export const app = express();
 app.use(express.json());
 
+// Normalización de CORS para integraciones cross-origin y Vercel preflight
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Authorization, Content-Type, Accept, Idempotency-Key, idempotency-key, X-Idempotency-Key, x-idempotency-key, X-Requested-With',
+    );
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  }
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
+
 // Normalización de rutas para Vercel Serverless Functions
 app.use((req, res, next) => {
   if (req.url && !req.url.startsWith('/api')) {

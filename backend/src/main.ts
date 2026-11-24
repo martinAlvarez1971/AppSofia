@@ -37,7 +37,16 @@ async function bootstrap() {
       return callback(null, false)
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type'],
+    allowedHeaders: [
+      'Authorization',
+      'Content-Type',
+      'Accept',
+      'Idempotency-Key',
+      'idempotency-key',
+      'X-Idempotency-Key',
+      'x-idempotency-key',
+      'X-Requested-With',
+    ],
     credentials: true,
   })
   app.useGlobalPipes(new ValidationPipe({
